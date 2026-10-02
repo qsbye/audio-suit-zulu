@@ -1,108 +1,137 @@
-# VoiceAmp
+# AudioSuitZulu 音函
 
-VoiceAmp turns your Android phone into a portable microphone and speaker system.
-
-It captures your voice using the device microphone and streams it in real time to a connected Bluetooth speaker or other audio output device.
-
-This is useful for:
-
-* Small presentations
-* Teaching in classrooms
-* Outdoor speaking
-* Quick announcements
-* Situations where a traditional microphone setup is not available
+[中文](#中文) | [English](#english)
 
 ---
 
-## Features
+## 中文
 
-* Real-time voice streaming
-* Audio output to Bluetooth or wired speakers
-* Simple press-and-hold recording control
-* Recording state feedback — the button turns red and shows "Recording..." while streaming
-* Adjustable gain (-20 dB to +20 dB) — positive values amplify your voice, negative values attenuate the output to reduce acoustic echo
-* Live dual waveform display — raw (gray) and gain-processed (green) waveforms rendered with smooth Bezier curves
-* System volume indicator with a mute warning, refreshed in real time
-* Runtime microphone permission handling
-* Lightweight and easy to use
+AudioSuitZulu(音函)是一个 Android 实时音频处理工具集,目前包含**扩音器**模块,未来计划加入**消音器**、变声等更多音频工具。
 
----
+### 扩音器模块
 
-# Installation
+把手机变成便携式扩音器:通过麦克风实时采集人声,推送到蓝牙音箱、有线音响或手机扬声器播放。适用于:
 
-## Option 1: Install via APK (Recommended)
+* 小型演讲、教室讲课
+* 户外活动喊话
+* 临时广播通知
+* 没有专业扩音设备场合
 
-1. Go to the **Releases** section of this repository.
-2. Download the latest APK file.
-3. Open the APK file and install it.
-4. Allow installation from unknown sources if prompted.
+### 功能
 
-After installation, launch the app and grant microphone permission.
+* 实时语音采集与播放(PCM 16bit / 44.1kHz 单声道流式传输)
+* 按住录音、松开停止,按钮红色高亮显示 "Recording..." 状态
+* 增益调节:-20 dB ~ +20 dB,正值放大音量,负值衰减输出以降低回声
+* 双波形实时显示:灰色原始波形、绿色处理后波形,贝塞尔曲线平滑绘制
+* 系统音量实时指示,静音时红色警告提示
+* 运行时麦克风权限申请
 
----
+### 界面说明
 
-## Option 2: Build from Source (For Developers)
+* **扩音器** — 当前模块标题
+* **Record 按钮** — 按住开始扩音,松开停止;录音中变红色并显示 "Recording..."
+* **音量指示** — 显示当前媒体音量(如 `音量: 7 / 15`)及进度条,静音时显示红色警告
+* **增益滑条** — -20 dB ~ +20 dB,居中为 0 dB;右滑放大,左滑衰减(减轻回声)
+* **波形图** — 灰色为原始波形,绿色为增益处理后波形,实时刷新
 
-### Requirements
+### 构建
 
-* Android Studio Arctic Fox (2020.3.1) or newer
-* Android SDK with compile SDK version 34
-* Android device running Android 7.0 (API level 24) or higher
-* Bluetooth speaker or external audio output device
-
-### Steps
-
-1. Clone the repository:
+要求:Android Studio(Gradle 8.7 + AGP 8.5.1,JDK 17),compileSdk 34,minSdk 24。
 
 ```bash
-git clone https://github.com/iman-zamani/VoiceAmp.git
+git clone https://github.com/iman-zamani/audio-suppression-zulu.git
+cd audio-suppression-zulu
+./gradlew :app:assembleDebug
 ```
 
-2. Open Android Studio.
-3. Select **Open an Existing Project**.
-4. Choose the cloned project folder.
-5. Allow Gradle to sync.
-6. Connect a physical Android device (recommended for audio testing).
-7. Click **Run** to build and install the app.
+### 使用
+
+1. 手机连接蓝牙音箱或音响
+2. 打开应用,授予麦克风权限
+3. 按住 Record 按钮说话,松开停止
+4. 根据需要调节增益滑条
+
+### 回声说明
+
+本应用未实现 DSP 级声学回声消除(AEC)。负增益通过衰减播放信号幅度来降低喇叭音量,从而减少被麦克风重新拾取的回声。对回声敏感的场景建议佩戴耳机,或让音箱远离手机。
+
+### Roadmap / 计划
+
+* [x] 扩音器模块
+* [ ] 消音器模块(环境噪音抑制)
+* [ ] 更多音频工具(变声、均衡器等)
+
+### 注意
+
+项目处于开发阶段,可能存在 bug 和稳定性问题,仅供测试与实验使用。
+
+### 许可
+
+MIT License,见 [LICENSE](LICENSE)。
 
 ---
 
-# Usage
+## English
 
-1. Connect your phone to a Bluetooth speaker.
-2. Launch VoiceAmp.
-3. Grant microphone permission when requested.
-4. Press and hold the "Record" button to start streaming.
-5. Release the button to stop streaming.
+AudioSuitZulu is a collection of real-time audio processing tools for Android. It currently ships an **amplifier** module, with a **noise suppressor**, voice changer, and more tools planned.
 
-Your voice will be played through the connected speaker in real time.
+### Amplifier Module
 
-## Interface
+Turns your phone into a portable megaphone: it captures your voice through the microphone and streams it in real time to a Bluetooth speaker, wired audio system, or the phone's own loudspeaker. Useful for:
 
-* **扩音器 title** — shown at the top of the screen.
-* **Record button** — press and hold to stream; turns red with "Recording..." text while active.
-* **Volume indicator** — shows the current media stream volume (e.g. `音量: 7 / 15`) with a progress bar; a red warning appears when the device is muted.
-* **Gain slider** — range -20 dB to +20 dB, centered at 0 dB. Drag right to amplify your voice, drag left to attenuate the output (helps reduce echo when the speaker is close to the phone).
-* **Waveform view** — gray curve shows the raw microphone input, green curve shows the signal after gain is applied. Both are drawn with smooth Bezier curves and update in real time while streaming.
+* Small presentations and classroom teaching
+* Outdoor speaking
+* Quick announcements
+* Any situation without a dedicated PA system
 
-## Notes on echo
+### Features
+
+* Real-time voice capture and playback (PCM 16bit / 44.1kHz mono streaming)
+* Press-and-hold to talk, release to stop; the button highlights red with a "Recording..." state
+* Adjustable gain from -20 dB to +20 dB: positive values amplify, negative values attenuate the output to reduce acoustic echo
+* Live dual waveform display: raw waveform in gray, gain-processed waveform in green, both rendered with smooth Bezier curves
+* Real-time system volume indicator with a red warning when muted
+* Runtime microphone permission handling
+
+### Interface
+
+* **扩音器** — title of the current module
+* **Record button** — press and hold to amplify, release to stop; turns red showing "Recording..." while active
+* **Volume indicator** — current media volume (e.g. `音量: 7 / 15`) with a progress bar; a red warning appears when muted
+* **Gain slider** — -20 dB to +20 dB, centered at 0 dB; drag right to amplify, left to attenuate (reduces echo)
+* **Waveform view** — gray is the raw input, green is the processed signal, refreshed in real time
+
+### Build
+
+Requirements: Android Studio (Gradle 8.7 + AGP 8.5.1, JDK 17), compileSdk 34, minSdk 24.
+
+```bash
+git clone https://github.com/iman-zamani/audio-suppression-zulu.git
+cd audio-suppression-zulu
+./gradlew :app:assembleDebug
+```
+
+### Usage
+
+1. Connect the phone to a Bluetooth speaker or audio system
+2. Open the app and grant microphone permission
+3. Press and hold the Record button to speak, release to stop
+4. Adjust the gain slider as needed
+
+### Echo Note
 
 This app does not implement DSP-level acoustic echo cancellation (AEC). The negative gain control lowers the playback signal amplitude, which reduces speaker volume and therefore the amount of echo picked up by the microphone. For echo-critical scenarios, use a headset or keep the speaker away from the phone.
 
----
+### Roadmap
 
-# Important Notice
+* [x] Amplifier module
+* [ ] Noise suppressor module
+* [ ] More audio tools (voice changer, equalizer, etc.)
 
-This project is currently under development and is not ready for production use.
+### Disclaimer
 
-* It may contain bugs or stability issues.
-* Performance may vary between devices.
-* Security measures are not fully implemented.
+This project is under active development and may contain bugs or stability issues. Use it for testing and experimental purposes only.
 
-Use this project for testing and experimental purposes only.
+### License
 
----
-
-# License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE).

@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Audio-Stream-App"
+rootProject.name = "audio-suppression-zulu"
 include(":app")
  
