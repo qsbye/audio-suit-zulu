@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/waveform.png" alt="AudioSuitZulu" width="128" height="128">
+</p>
+
 # AudioSuitZulu 音函
 
 [中文](#中文) | [English](#english)
