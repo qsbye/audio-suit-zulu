@@ -38,6 +38,7 @@ captures/
 # IntelliJ / Android Studio
 *.iml
 .idea/
+.github/token
 
 # Keystore files
 *.jks
