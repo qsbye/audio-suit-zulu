@@ -10,7 +10,7 @@
 
 ## 中文
 
-AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音器**模块,提供 Android 手机应用与 macOS 桌面应用两个构建目标,未来计划加入**消音器**、变声等更多音频工具。
+AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音器**与**消音器(ANC)**两个模块,提供 Android 手机应用与 macOS 桌面应用两个构建目标,未来计划加入变声等更多音频工具。
 
 界面全部使用 [Jetpack Compose](https://developer.android.com/jetpack/compose)(Android) / [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)(桌面)声明式构建,无任何 XML 布局;配色采用固定的**大地色系(Earth-Tone)**主题,不随系统明暗模式切换。
 
@@ -22,6 +22,17 @@ AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音�
 * 户外活动喊话
 * 临时广播通知
 * 没有专业扩音设备场合
+
+### 消音器模块(主动降噪 ANC)
+
+针对**固定规律**的环境噪音(风扇、电机、泵、嗡鸣)的实验性主动降噪:录制一段噪音,在端上训练一个小型神经网络学习其周期波形,标定扬声器→麦克风的回路时延后,提前播放相位相反的波形在麦克风处抵消噪音。使用流程:
+
+1. **录制** — 对着噪音源录 2~6 秒;应用自动做自相关周期检测,给出基频与规律性置信度
+2. **训练** — 纯 Kotlin MLP + 手写反向传播 + Adam 优化器(无任何第三方 ML 库),在端上把录音折叠成单周期模板并拟合,通常 1 秒内完成
+3. **标定** — 播放一段 chirp 扫频,互相关定位回路时延(实测约 380~390ms),同时在匹配峰处做最小二乘估计扬声器→麦植物增益;支持 ±50ms 手动微调
+4. **消音** — 打开开关后按预测相位提前生成反向波形播放;界面显示锁定徽章、实时双波形(大地灰=麦克风采音,湖水蓝=反相波)与周期带能量降幅(dB)
+
+技术要点:全部 DSP 为纯 Kotlin 实现(FFT 周期检测、PLL 相位跟踪、NLMS 回声剥离、门控缓升/淡出),代码位于 `app/.../dsp/anc/` 与 `desktop/.../dsp/anc/` 共 6 个文件(`Fft`、`PeriodDetector`、`LatencyCalibrator`、`WaveformMlp`、`AdamTrainer`、`AncController`),两端逐字节一致;Android 与桌面双端均可运行。
 
 ### 功能
 
@@ -37,7 +48,7 @@ AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音�
 
 ### 界面说明
 
-* **扩音器 / 关于** — 顶部两个标签页
+* **扩音器 / 消音器 / 关于** — 顶部三个标签页
 * **Record 按钮** — 按住开始扩音,松开停止;土褐色按钮在录音中变为赤陶土色
 * **音量 / 电平指示** — Android 显示当前媒体音量(如 `音量: 7 / 15`)及进度条,静音时显示警告;桌面端显示实时输入电平百分比
 * **增益滑条** — -20 dB ~ +20 dB,居中为 0 dB;右滑放大,左滑衰减
@@ -58,7 +69,7 @@ AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音�
 麦克风 → 回声消除(NLMS) → 防啸叫(自适应陷波) → 增益 → 扬声器
 ```
 
-DSP 代码位于 `app/.../dsp/` 与 `desktop/.../dsp/`:`NlmsAec.kt`(NLMS + Geigel 双讲检测)、`HowlingSuppressor.kt`(256 点 FFT 啸叫检测 + IIR 陷波组)。
+DSP 代码位于 `app/.../dsp/` 与 `desktop/.../dsp/`:`NlmsAec.kt`(NLMS + Geigel 双讲检测)、`HowlingSuppressor.kt`(256 点 FFT 啸叫检测 + IIR 陷波组);消音器 ANC 的 6 个文件位于各自的 `dsp/anc/` 子目录,两端内容逐字节一致(仅 package 行不同)。
 
 ### 构建
 
@@ -101,11 +112,18 @@ fat jar 内已打包 macos-arm64 与 macos-x64 两套 Skiko 原生库,无需额�
 
 局限:软件 AEC 主要抑制线性回声(直达声与早期反射),对非线性失真和强混响的尾部回声效果有限,滤波器收敛需要约 1~2 秒,整体效果不及手机硬件 HAL 级 AEC。对回声极度敏感的场景仍建议佩戴耳机,或让音箱远离麦克风;高增益扩音时建议两个功能同时开启。
 
+### 已知问题
+
+* **倍频误锁**:对含拍频的多风扇/复合声源,自相关基频检测偶尔落在倍频上(如 445Hz 锁成 904Hz),此时周期跟踪不稳、消音效果明显变差;重新录制一次通常可落回基频
+* **弱规律性声源降幅有限**:规律性置信度 <0.5 的噪音允许强制训练,但实测周期分量降幅约 1~3 dB(强规律单频声源可更高);多台风扇拍频、频率漂移大的声源目前效果不佳
+* **低延迟模式不可用**:部分 ROM(如华为 Android 12)裁掉了低延迟音频模式 API,应用自动回退普通模式,回路延迟约 380~390ms,已由标定补偿,但 ±50ms 手动微调仍需按实际听感校准
+* **采集启动零样本**:部分机型 `AudioRecord` 开始采集后约 0.25 秒输出全零样本,引擎已自动排空;极少数情况下首次相位捕获偏慢,关闭再打开消音开关即可恢复
+
 ### Roadmap / 计划
 
 * [x] 扩音器模块(Android)
 * [x] macOS 桌面 fat jar 构建目标
-* [ ] 消音器模块(环境噪音抑制)
+* [x] 消音器模块(周期性环境噪音主动降噪,Android + macOS 双端)
 * [ ] 更多音频工具(变声、均衡器等)
 
 ### 注意
@@ -120,7 +138,7 @@ MIT License,见 [LICENSE](LICENSE)。
 
 ## English
 
-AudioSuitZulu is a collection of real-time audio processing tools. It currently ships an **amplifier** module with two build targets — an Android phone app and a macOS desktop app — with a **noise suppressor**, voice changer, and more tools planned.
+AudioSuitZulu is a collection of real-time audio processing tools. It currently ships an **amplifier** module and a **noise suppressor (ANC)** module with two build targets — an Android phone app and a macOS desktop app — with a voice changer and more tools planned.
 
 The entire UI is built declaratively with [Jetpack Compose](https://developer.android.com/jetpack/compose) (Android) / [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/) (desktop), with no XML layouts at all. It uses a fixed **Earth-Tone** color theme that does not switch with the system light/dark mode.
 
@@ -132,6 +150,17 @@ Turns your device into a portable megaphone: it captures your voice through the 
 * Outdoor speaking
 * Quick announcements
 * Any situation without a dedicated PA system
+
+### Noise Suppressor Module (ANC)
+
+Experimental active noise cancellation for **steady periodic** ambient noise (fans, motors, pumps, hums): record a short sample, train a tiny on-device neural network to learn its periodic waveform, calibrate the speaker→microphone loop latency, then play back a phase-inverted waveform ahead of time so it cancels the noise at the microphone. The flow:
+
+1. **Record** — capture 2–6 s of the noise; an autocorrelation period detector reports the fundamental frequency and a periodicity confidence
+2. **Train** — a pure-Kotlin MLP with hand-written backpropagation and the Adam optimizer (no third-party ML libraries) folds the recording into a single-period template and fits it, usually in under a second
+3. **Calibrate** — a chirp sweep is played; cross-correlation locates the loop latency (about 380–390 ms on tested hardware), and a least-squares fit at the matched peak estimates the speaker→mic plant gain; manual adjustment of ±50 ms is supported
+4. **Cancel** — flip the switch and the app plays the inverted waveform ahead of the predicted phase; the UI shows a lock badge, a live dual waveform (earth gray = microphone input, lake blue = anti-phase wave), and the periodic-band energy reduction in dB
+
+Technical notes: all DSP is pure Kotlin (FFT-based period detection, PLL phase tracking, NLMS echo removal, gated ramp-up/fade-out), in six files under `app/.../dsp/anc/` and `desktop/.../dsp/anc/` (`Fft`, `PeriodDetector`, `LatencyCalibrator`, `WaveformMlp`, `AdamTrainer`, `AncController`), byte-identical between the two targets; both Android and desktop builds can run the full flow.
 
 ### Features
 
@@ -147,7 +176,7 @@ Turns your device into a portable megaphone: it captures your voice through the 
 
 ### Interface
 
-* **扩音器 / 关于** — the two top tabs
+* **扩音器 / 消音器 / 关于** — the three top tabs
 * **Record button** — press and hold to amplify, release to stop; the dirt-brown button turns terracotta while recording
 * **Volume / level indicator** — Android shows current media volume (e.g. `音量: 7 / 15`) with a progress bar and a warning when muted; desktop shows live input level percentage
 * **Gain slider** — -20 dB to +20 dB, centered at 0 dB; drag right to amplify, left to attenuate
@@ -168,7 +197,7 @@ Both targets share the same declarative UI design and Earth-Tone theme, and each
 microphone → AEC (NLMS) → howling suppression (adaptive notch) → gain → speaker
 ```
 
-The DSP code lives in `app/.../dsp/` and `desktop/.../dsp/`: `NlmsAec.kt` (NLMS + Geigel double-talk detection) and `HowlingSuppressor.kt` (256-point FFT howling detection + IIR notch bank).
+The DSP code lives in `app/.../dsp/` and `desktop/.../dsp/`: `NlmsAec.kt` (NLMS + Geigel double-talk detection) and `HowlingSuppressor.kt` (256-point FFT howling detection + IIR notch bank); the six ANC files live in each target's `dsp/anc/` subdirectory and are byte-identical across targets (only the package line differs).
 
 ### Build
 
@@ -211,11 +240,18 @@ The app includes two **pure-software** real-time DSP modules (see `docs/` for th
 
 Limitations: software AEC mainly suppresses linear echo (direct sound and early reflections). It is less effective against non-linear distortion and late reverb tails, the filter needs roughly 1–2 s to converge, and overall it does not match a phone's hardware HAL-level AEC. For highly echo-critical scenarios, use a headset or keep the speaker away from the microphone; keeping both features enabled is recommended at high gain.
 
+### Known Issues
+
+* **Harmonic mislock**: for multi-fan or composite sources with beating, the autocorrelation pitch detector occasionally locks onto a harmonic (e.g. 904 Hz instead of 445 Hz); phase tracking then becomes unstable and cancellation degrades noticeably. Re-recording usually lands back on the fundamental
+* **Limited reduction on weakly periodic sources**: noise with periodicity confidence below 0.5 can be force-trained, but the measured periodic-band reduction is only about 1–3 dB (strongly periodic single-tone sources do better); beating multi-fan sources and sources with heavy frequency drift currently perform poorly
+* **Low-latency mode unavailable**: some ROMs (e.g. Huawei Android 12) strip the low-latency audio mode APIs; the app falls back to the normal mode with a loop latency of about 380–390 ms, which calibration compensates for, but the ±50 ms manual trim still needs to be set by ear
+* **Zero samples at capture start**: on some devices `AudioRecord` outputs all-zero samples for about 0.25 s after starting; the engine drains them automatically, and in rare cases where the first phase acquisition is slow, toggling the cancel switch off and on recovers it
+
 ### Roadmap
 
 * [x] Amplifier module (Android)
 * [x] macOS desktop fat jar build target
-* [ ] Noise suppressor module
+* [x] Noise suppressor module (active cancellation of periodic ambient noise, Android + macOS)
 * [ ] More audio tools (voice changer, equalizer, etc.)
 
 ### Disclaimer
