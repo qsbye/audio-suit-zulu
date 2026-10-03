@@ -21,6 +21,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.tabs.TabLayout
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.pow
@@ -66,6 +67,9 @@ class MainActivity : AppCompatActivity() {
         defaultButtonTint = recordButton.backgroundTintList
         executorService = Executors.newSingleThreadExecutor()
 
+        setupTabs()
+        findViewById<TextView>(R.id.versionText).text = "版本: ${BuildConfig.VERSION_NAME}"
+
         gainSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val db = progress - GAIN_RANGE_DB
@@ -86,6 +90,22 @@ class MainActivity : AppCompatActivity() {
 
         updateVolumeDisplay()
         checkPermissions()
+    }
+
+    private fun setupTabs() {
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        val pageLoudspeaker = findViewById<View>(R.id.pageLoudspeaker)
+        val pageAbout = findViewById<View>(R.id.pageAbout)
+        tabLayout.addTab(tabLayout.newTab().setText("扩音器"))
+        tabLayout.addTab(tabLayout.newTab().setText("关于"))
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                pageLoudspeaker.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
+                pageAbout.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
     }
 
     private fun checkPermissions() {

@@ -1,7 +1,16 @@
+import java.time.LocalDateTime
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
 }
+
+// 版本号规则: 年(2位).月.日.时，按构建时间自动生成
+val buildNow = LocalDateTime.now()
+val generatedVersionName =
+    "${buildNow.year % 100}.${buildNow.monthValue}.${buildNow.dayOfMonth}.${buildNow.hour}"
+val generatedVersionCode =
+    (buildNow.year % 100) * 1_000_000 + buildNow.monthValue * 10_000 + buildNow.dayOfMonth * 100 + buildNow.hour
 
 android {
     namespace = "com.example.audio_stream_app"
@@ -11,10 +20,14 @@ android {
         applicationId = "com.example.audio_stream_app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = generatedVersionCode
+        versionName = generatedVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
