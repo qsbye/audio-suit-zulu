@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import com.example.audio_stream_app.dsp.HowlingSuppressor
+import com.example.audio_stream_app.dsp.NlmsAec
 import com.example.audio_stream_app.ui.theme.AudioSuitZuluTheme
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -39,12 +41,24 @@ class MainActivity : ComponentActivity() {
     private var selectedTab by mutableIntStateOf(0)
     private var volume by mutableIntStateOf(0)
     private var maxVolume by mutableIntStateOf(1)
+    private var aecEnabled by mutableStateOf(true)
+    private var howlingEnabled by mutableStateOf(true)
 
     private lateinit var audioRecord: AudioRecord
     private lateinit var audioTrack: AudioTrack
     private lateinit var executorService: ExecutorService
     private lateinit var audioManager: AudioManager
     private val waveformController = WaveformController()
+    private val aec = NlmsAec()
+    private val howlingSuppressor = HowlingSuppressor(SAMPLE_RATE)
+
+    // 音频线程读取的使能标志（由 UI 状态镜像写入）
+    @Volatile
+    private var aecOn = true
+
+    @Volatile
+    private var howlingOn = true
+
     private val handler = Handler(Looper.getMainLooper())
 
     private val volumePoller = object : Runnable {
@@ -91,8 +105,18 @@ class MainActivity : ComponentActivity() {
                                 volume = volume,
                                 maxVolume = maxVolume,
                                 gainDb = gainDb,
+                                aecEnabled = aecEnabled,
+                                howlingEnabled = howlingEnabled,
                                 waveformController = waveformController,
                                 onGainChange = { gainDb = it },
+                                onAecEnabledChange = {
+                                    aecEnabled = it
+                                    aecOn = it
+                                },
+                                onHowlingEnabledChange = {
+                                    howlingEnabled = it
+                                    howlingOn = it
+                                },
                                 onRecordStart = { startStreaming() },
                                 onRecordStop = { stopStreaming() }
                             )
@@ -118,7 +142,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun initializeAudioComponents() {
-        val sampleRate = 44100
+        val sampleRate = SAMPLE_RATE
         val bufferSize = AudioRecord.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -171,24 +195,62 @@ class MainActivity : ComponentActivity() {
         audioTrack.play()
         updateVolumeDisplay()
         executorService.submit {
-            val buffer = ShortArray(512)
-            val processed = ShortArray(512)
+            val buffer = ShortArray(CHUNK_SAMPLES)
+            val processed = ShortArray(CHUNK_SAMPLES)
+            // DSP 使能边沿跟踪与参考信号都限定在音频线程内，无需加锁
+            var aecActive = aecOn
+            var howlingActive = howlingOn
+            aec.reset()
+            howlingSuppressor.reset()
+            var reference = 0f
             while (isRecording) {
                 val readResult = audioRecord.read(buffer, 0, buffer.size)
                 if (readResult > 0) {
-                    applyGain(buffer, processed, readResult)
+                    if (aecOn != aecActive) {
+                        aec.reset()
+                        reference = 0f
+                        aecActive = aecOn
+                    }
+                    if (howlingOn != howlingActive) {
+                        howlingSuppressor.reset()
+                        howlingActive = howlingOn
+                    }
+                    reference = processBuffer(
+                        buffer, processed, readResult, aecActive, howlingActive, reference
+                    )
                     audioTrack.write(processed, 0, readResult)
                     waveformController.addSamples(buffer, processed, readResult)
                 }
             }
+            // 停止后清空回声路径估计与陷波，避免下次启动出现瞬态
+            aec.reset()
+            howlingSuppressor.reset()
         }
     }
 
-    private fun applyGain(raw: ShortArray, out: ShortArray, count: Int) {
-        val multiplier = 10.0.pow(gainDb / 20.0)
+    /**
+     * 处理一帧：回声消除 → 防啸叫陷波 → 增益。
+     * AEC 的参考信号是真正送往扬声器的播放信号（增益后），返回本帧最后一个参考采样。
+     */
+    private fun processBuffer(
+        raw: ShortArray,
+        out: ShortArray,
+        count: Int,
+        aecActive: Boolean,
+        howlingActive: Boolean,
+        referenceIn: Float
+    ): Float {
+        val multiplier = 10.0.pow(gainDb / 20.0).toFloat()
+        var reference = referenceIn
         for (i in 0 until count) {
-            out[i] = (raw[i] * multiplier).toInt().coerceIn(-32768, 32767).toShort()
+            var sample = raw[i] / MAX_SAMPLE
+            if (aecActive) sample = aec.processSample(sample, reference)
+            if (howlingActive) sample = howlingSuppressor.processSample(sample)
+            val played = (sample * multiplier).coerceIn(-1f, 1f)
+            out[i] = (played * 32767f).toInt().toShort()
+            reference = played
         }
+        return reference
     }
 
     private fun stopStreaming() {
@@ -218,5 +280,11 @@ class MainActivity : ComponentActivity() {
         executorService.shutdownNow()
         if (::audioRecord.isInitialized) audioRecord.release()
         if (::audioTrack.isInitialized) audioTrack.release()
+    }
+
+    private companion object {
+        const val SAMPLE_RATE = 44100
+        const val CHUNK_SAMPLES = 512
+        const val MAX_SAMPLE = 32768f
     }
 }

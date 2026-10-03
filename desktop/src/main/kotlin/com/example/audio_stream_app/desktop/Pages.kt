@@ -7,8 +7,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -59,7 +62,11 @@ fun LoudspeakerPage(
     engine: AudioEngine,
     isRecording: Boolean,
     gainDb: Double,
+    aecEnabled: Boolean,
+    howlingEnabled: Boolean,
     onGainChange: (Double) -> Unit,
+    onAecEnabledChange: (Boolean) -> Unit,
+    onHowlingEnabledChange: (Boolean) -> Unit,
     onRecordStart: () -> Unit,
     onRecordStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -157,6 +164,30 @@ fun LoudspeakerPage(
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
+
+        Spacer(Modifier.height(8.dp))
+
+        // DSP 开关：回声消除与防啸叫，可随时勾选/取消
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = aecEnabled,
+                    onCheckedChange = onAecEnabledChange
+                )
+                Text(text = "回声消除", fontSize = 14.sp)
+            }
+            Spacer(Modifier.width(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = howlingEnabled,
+                    onCheckedChange = onHowlingEnabledChange
+                )
+                Text(text = "防啸叫", fontSize = 14.sp)
+            }
+        }
 
         Spacer(Modifier.height(16.dp))
 

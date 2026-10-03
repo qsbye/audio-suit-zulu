@@ -51,6 +51,8 @@ private fun App() {
     var isRecording by remember { mutableStateOf(false) }
     var gainDb by remember { mutableDoubleStateOf(0.0) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    var aecEnabled by remember { mutableStateOf(engine.aecEnabled) }
+    var howlingEnabled by remember { mutableStateOf(engine.howlingEnabled) }
 
     AudioSuitZuluTheme {
         Surface(
@@ -76,9 +78,19 @@ private fun App() {
                         engine = engine,
                         isRecording = isRecording,
                         gainDb = gainDb,
+                        aecEnabled = aecEnabled,
+                        howlingEnabled = howlingEnabled,
                         onGainChange = {
                             gainDb = it
                             engine.gainDb = it
+                        },
+                        onAecEnabledChange = {
+                            aecEnabled = it
+                            engine.aecEnabled = it
+                        },
+                        onHowlingEnabledChange = {
+                            howlingEnabled = it
+                            engine.howlingEnabled = it
                         },
                         onRecordStart = {
                             scope.launch {
