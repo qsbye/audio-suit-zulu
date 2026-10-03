@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.example.audio_stream_app.desktop.ui.theme.CanadianLake
 import com.example.audio_stream_app.desktop.ui.theme.EarthGray
 import com.example.audio_stream_app.desktop.ui.theme.Khaki
 import com.example.audio_stream_app.desktop.ui.theme.OliveGreen
@@ -18,6 +19,7 @@ import kotlin.math.min
 
 private val RawWaveColor = EarthGray
 private val ProcessedWaveColor = OliveGreen
+private val AntiWaveColor = CanadianLake
 private val GridColor = Khaki
 
 @Composable
@@ -72,6 +74,35 @@ private fun DrawScope.drawWave(samples: List<Short>, color: Color) {
         path.cubicTo(c1x, c1y, c2x, c2y, xs[i + 1], ys[i + 1])
     }
     drawPath(path, color, style = Stroke(width = 5f, cap = StrokeCap.Round))
+}
+
+/**
+ * 双路波形绘制（消音器页）：灰=麦克风、湖蓝=反相波。
+ */
+@Composable
+fun DualWaveform(
+    controller: DualWaveformController,
+    modifier: Modifier = Modifier,
+    colorA: Color = RawWaveColor,
+    colorB: Color = AntiWaveColor
+) {
+    Canvas(modifier) {
+        @Suppress("UNUSED_VARIABLE")
+        val version = controller.version
+
+        val midY = size.height / 2f
+        val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+        drawLine(GridColor, Offset(0f, midY), Offset(size.width, midY), 2f, pathEffect = dashEffect)
+        drawLine(GridColor, Offset(0f, 0f), Offset(size.width, 0f), 2f, pathEffect = dashEffect)
+        drawLine(
+            GridColor, Offset(0f, size.height), Offset(size.width, size.height),
+            2f, pathEffect = dashEffect
+        )
+
+        val (a, b) = controller.snapshot()
+        drawWave(a, colorA)
+        drawWave(b, colorB)
+    }
 }
 
 private const val MAX_DRAW_POINTS = 360

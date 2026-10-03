@@ -1,4 +1,4 @@
-package com.example.audio_stream_app
+package com.example.audio_stream_app.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -37,12 +37,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.audio_stream_app.dsp.anc.PeriodDetector
-import com.example.audio_stream_app.ui.theme.CanadianLake
-import com.example.audio_stream_app.ui.theme.EarthGray
-import com.example.audio_stream_app.ui.theme.Khaki
-import com.example.audio_stream_app.ui.theme.OliveGreen
-import com.example.audio_stream_app.ui.theme.TerraCotta
+import com.example.audio_stream_app.desktop.dsp.anc.PeriodDetector
+import com.example.audio_stream_app.desktop.ui.theme.CanadianLake
+import com.example.audio_stream_app.desktop.ui.theme.EarthGray
+import com.example.audio_stream_app.desktop.ui.theme.Khaki
+import com.example.audio_stream_app.desktop.ui.theme.OliveGreen
+import com.example.audio_stream_app.desktop.ui.theme.TerraCotta
 
 private val PanelTint = Color(0x14836539)
 

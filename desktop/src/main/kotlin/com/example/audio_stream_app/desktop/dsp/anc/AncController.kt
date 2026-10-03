@@ -1,4 +1,4 @@
-package com.example.audio_stream_app.dsp.anc
+package com.example.audio_stream_app.desktop.dsp.anc
 
 import kotlin.math.abs
 import kotlin.math.ln
@@ -207,6 +207,7 @@ class AncController(
         //    播放量按 1/plant 补偿扬声器→麦衰减，使反噪在麦处与外部周期声等幅
         val playScale = (ampSmooth * templateRms * gate / plant.coerceAtLeast(0.02f))
         val step = period / instPeriod   // 每真实采样对应的模板步进（漂移补偿）
+        val periodicPower: Double
         for (i in 0 until count) {
             var played = 0f
             if (gate > 1e-4f) {
@@ -220,30 +221,14 @@ class AncController(
             pushPlayed(played)
         }
 
-        // 5) 周期带能量指标：必须在「原始麦信号」上拟合周期分量功率。
-        //    ext 已被 AEC 减掉反波回声，用它度量会看不到真实抵消量。
-        //    用本块已修正的块首相位把原始麦折叠到模板求最小二乘幅度。
-        var periodicPower = 0.0
-        if (everAcquired) {
-            var rawNum = 0.0
-            var rawTplSq = 0.0
-            for (i in 0 until count) {
-                val idx = (((phase + i * step).roundToInt()) % pInt + pInt) % pInt
-                val t = template[idx].toDouble()
-                rawNum += (mic[i].toDouble() / 32768.0) * t
-                rawTplSq += t * t
-            }
-            if (rawTplSq > 1e-12) {
-                val rawAmp = rawNum / rawTplSq
-                periodicPower = rawAmp * rawAmp * templatePower
-            }
-        }
-
-        // 6) 帧相位统一推进到下一帧（全类中唯一的推进点）
+        // 5) 帧相位统一推进到下一帧（全类中唯一的推进点）
         if (everAcquired) {
             phase = (phase + count * step) % pInt
-            if (phase < 0.0) phase += 0.0
+            if (phase < 0.0) phase += pInt
         }
+
+        // 6) 周期带能量指标（外部噪声周期分量功率）
+        periodicPower = (ampSmooth.toDouble() * ampSmooth) * templatePower
         if (baselineChunks < BASELINE_CHUNKS) {
             baselineAccum += periodicPower
             baselineChunks++

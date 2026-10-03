@@ -1,4 +1,4 @@
-package com.example.audio_stream_app.dsp.anc
+package com.example.audio_stream_app.desktop.dsp.anc
 
 import kotlin.math.PI
 import kotlin.math.cos

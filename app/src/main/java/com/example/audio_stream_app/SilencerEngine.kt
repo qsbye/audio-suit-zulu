@@ -141,6 +141,7 @@ class SilencerEngine(private val context: Context) {
                 val ar = audioRecord ?: return@execute
                 val buf = ShortArray(CHUNK_SAMPLES)
                 ar.startRecording()
+                drainInitialSilence(ar)
                 var level = 0f
                 var lastPost = 0L
                 while (recording && recordFrames < MAX_RECORD_SAMPLES) {
@@ -171,6 +172,19 @@ class SilencerEngine(private val context: Context) {
             closeAudio()
             recording = false
             val frames = recordFrames
+            // 临时诊断：导出原始录音 PCM（验收取证后移除）
+            try {
+                val f = java.io.File(context.getExternalFilesDir(null), "silencer_record.pcm")
+                java.io.DataOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(f))).use { os ->
+                    for (i in 0 until frames) {
+                        val v = recorded[i].toInt()
+                        os.write(v and 0xFF); os.write((v shr 8) and 0xFF)
+                    }
+                }
+                Log.i(TAG, "dump pcm -> ${f.absolutePath} frames=$frames")
+            } catch (t: Throwable) {
+                Log.w(TAG, "dump pcm failed", t)
+            }
             main.post {
                 recordMs = frames * 1000L / SAMPLE_RATE
                 recordLevel = 0f
@@ -328,6 +342,7 @@ class SilencerEngine(private val context: Context) {
         io.execute {
             var delay = -1
             var score = 0f
+            var plant = Float.NaN
             try {
                 if (openAudio()) {
                     val ar = audioRecord!!
@@ -344,17 +359,21 @@ class SilencerEngine(private val context: Context) {
                     ar.startRecording()
                     at.play()
                     // 每个块先写再读：write 在管线有空位时即时入队，read 阻塞一个
-                    // chunk 时长，两条时间线在块边界对齐，误差远小于一个 chunk
-                    val chunks = (rec.size + CHUNK_SAMPLES - 1) / CHUNK_SAMPLES
-                    var ci = 0
-                    while (ci < chunks) {
-                        val off = ci * CHUNK_SAMPLES
+                    // chunk 时长，两条时间线在块边界对齐，误差远小于一个 chunk。
+                    // 嵌套读到恰好一块，避免极少数机型短读造成录音索引空洞
+                    var off = 0
+                    while (off < rec.size) {
                         if (off < play.size) {
                             at.write(play, off, minOf(CHUNK_SAMPLES, play.size - off))
                         }
-                        val rn = ar.read(rec, off, minOf(CHUNK_SAMPLES, rec.size - off))
-                        if (rn < 0) break
-                        ci++
+                        val want = minOf(CHUNK_SAMPLES, rec.size - off)
+                        var have = 0
+                        while (have < want) {
+                            val rn = ar.read(rec, off + have, want - have)
+                            if (rn <= 0) break
+                            have += rn
+                        }
+                        off += want
                     }
                     val rf = FloatArray(rec.size) { rec[it] / 32768f }
                     // 夹 0–500ms（estimateDelay 内部再夹一次）
@@ -362,6 +381,7 @@ class SilencerEngine(private val context: Context) {
                     if (est != null) {
                         delay = est.delaySamples
                         score = est.score
+                        plant = est.gain
                     }
                 }
             } catch (t: Throwable) {
@@ -370,6 +390,7 @@ class SilencerEngine(private val context: Context) {
             closeAudio()
             val d = delay
             val s = score
+            val g = plant
             main.post {
                 phase = Phase.READY
                 if (d >= 0) {
@@ -377,11 +398,12 @@ class SilencerEngine(private val context: Context) {
                     val lead = totalLeadSamples()
                     totalLeadMs = lead * 1000f / SAMPLE_RATE
                     controller.updateLead(lead)
+                    if (!g.isNaN()) controller.setCalibratedPlant(g)
                     notice = ""
                     Log.i(
                         TAG,
-                        "标定成功 延迟=%.1fms 相关峰=%.2f 实际提前=%.1fms".format(
-                            calibratedMs, s, totalLeadMs
+                        "标定成功 延迟=%.1fms 相关峰=%.2f 植物增益=%.3f 实际提前=%.1fms".format(
+                            calibratedMs, s, g, totalLeadMs
                         )
                     )
                 } else {
@@ -394,7 +416,7 @@ class SilencerEngine(private val context: Context) {
     }
 
     /** ±50ms 手动微调，实时更新提前量。 */
-    fun setLeadAdjustMs(v: Float) {
+    fun adjustLead(v: Float) {
         if (calibratedMs < 0f) return
         leadAdjustMs = v.coerceIn(-50f, 50f)
         val lead = totalLeadSamples()
@@ -446,6 +468,7 @@ class SilencerEngine(private val context: Context) {
             val at = audioTrack!!
             ar.startRecording()
             at.play()
+            drainInitialSilence(ar)
             while (active) {
                 val n = ar.read(buf, 0, buf.size)
                 if (n <= 0) break
@@ -484,10 +507,13 @@ class SilencerEngine(private val context: Context) {
                     lastLog = now
                     Log.i(
                         TAG,
-                        "消音中 locked=%s f0=%.1f gain=%.2f bandΔ=%.1fdB".format(
+                        "消音中 locked=%s acq=%s conf=%.2f f0=%.1f gain=%.2f plant=%.2f bandΔ=%.1fdB".format(
                             controller.isLocked,
+                            controller.acquired,
+                            controller.lockConfidence,
                             controller.instantF0,
                             controller.antiGain,
+                            controller.plantGain,
                             controller.bandEnergyDeltaDb
                         )
                     )
@@ -505,12 +531,12 @@ class SilencerEngine(private val context: Context) {
         }
     }
 
-    fun setAntiLevel(v: Float) {
+    fun adjustAntiLevel(v: Float) {
         antiLevel = v.coerceIn(0.1f, 0.5f)
         controller.setMaxAntiLevel(antiLevel)
     }
 
-    fun setHowlingGuard(on: Boolean) {
+    fun setHowlingGuardEnabled(on: Boolean) {
         howlingGuard = on
         howlingOn = on
     }
@@ -631,16 +657,31 @@ class SilencerEngine(private val context: Context) {
         }
     }
 
-    private fun buildFormat(input: Boolean, lowLatency: Boolean): AudioFormat =
-        AudioFormat.Builder()
+    private fun buildFormat(input: Boolean, lowLatency: Boolean): AudioFormat {
+        val builder = AudioFormat.Builder()
             .setSampleRate(SAMPLE_RATE)
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setChannelMask(if (input) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_OUT_MONO)
-            .apply {
-                // API26+ 走低延迟路径，失败由调用方回退普通模式（NFR-3）
-                if (lowLatency) setPerformanceMode(AudioFormat.PERFORMANCE_MODE_LOW_LATENCY)
+        // API26+ 走低延迟路径，失败由调用方整体重建回退普通模式（NFR-3）。
+        // 部分环境的编译期 android.jar 未导出该符号，用反射调用。
+        if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                // 官方常量 PERFORMANCE_MODE_LOW_LATENCY=3132（API26+）；
+                // 部分 ROM（如华为）在 framework 中隐藏了该字段，反射失败时直接用字面值
+                val mode = try {
+                    AudioFormat::class.java.getField("PERFORMANCE_MODE_LOW_LATENCY").getInt(null)
+                } catch (_: NoSuchFieldException) {
+                    3132
+                }
+                AudioFormat.Builder::class.java
+                    .getMethod("setPerformanceMode", Int::class.javaPrimitiveType)
+                    .invoke(builder, mode)
+            } catch (t: Throwable) {
+                Log.w(TAG, "low-latency performance mode unavailable", t)
             }
-            .build()
+        }
+        return builder.build()
+    }
 
     private fun buildRecord(bufBytes: Int, lowLatency: Boolean): AudioRecord? = try {
         AudioRecord.Builder()
@@ -668,6 +709,27 @@ class SilencerEngine(private val context: Context) {
     } catch (t: Throwable) {
         Log.w(TAG, "buildTrack lowLatency=$lowLatency failed", t)
         null
+    }
+
+    /**
+     * 部分 ROM（实测华为 Android 12）AudioRecord startRecording 后前 200–300ms
+     * 读到的是零样本：会污染训练模板，并让消音控制器的首次相位捕获停在静音窗。
+     * 读数据块并丢弃，直到出现有效峰值或超过 0.5s 上限。
+     */
+    private fun drainInitialSilence(ar: android.media.AudioRecord) {
+        val tmp = ShortArray(CHUNK_SAMPLES)
+        var waited = 0
+        while (waited < SAMPLE_RATE / 2) {
+            val n = ar.read(tmp, 0, tmp.size)
+            if (n <= 0) break
+            waited += n
+            var peak = 0
+            for (i in 0 until n) {
+                val a = abs(tmp[i].toInt())
+                if (a > peak) peak = a
+            }
+            if (peak >= SILENCE_PEAK) return
+        }
     }
 
     @Synchronized
@@ -705,5 +767,7 @@ class SilencerEngine(private val context: Context) {
         const val LOG_REFRESH_MS = 500L
         // 基线约 0.3s（26 块）+ 再 0.5s 平滑
         const val BASELINE_VALID_FRAMES = 26 * CHUNK_SAMPLES + SAMPLE_RATE / 2
+        // 开录判活峰值：约 -40dB（32768 的 1%），低于视为线路静音
+        const val SILENCE_PEAK = 300
     }
 }

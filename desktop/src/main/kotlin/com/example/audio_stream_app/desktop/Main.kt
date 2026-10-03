@@ -32,6 +32,7 @@ fun main() = application {
     Window(
         onCloseRequest = {
             runCatching { engineRef?.stop() }
+            runCatching { silencerRef?.destroy() }
             exitApplication()
         },
         state = windowState,
@@ -43,16 +44,35 @@ fun main() = application {
 
 /** 进程级单例，保证窗口关闭回调可访问到正在运行的引擎 */
 private var engineRef: AudioEngine? = null
+private var silencerRef: SilencerEngine? = null
 
 @androidx.compose.runtime.Composable
 private fun App() {
     val scope = rememberCoroutineScope()
     val engine = remember { AudioEngine().also { engineRef = it } }
+    val silencer = remember { SilencerEngine().also { silencerRef = it } }
     var isRecording by remember { mutableStateOf(false) }
     var gainDb by remember { mutableDoubleStateOf(0.0) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var aecEnabled by remember { mutableStateOf(engine.aecEnabled) }
     var howlingEnabled by remember { mutableStateOf(engine.howlingEnabled) }
+
+    // 切 Tab 时两页音频会话互斥（FR-1）
+    fun selectTab(index: Int) {
+        if (index == selectedTab) return
+        if (selectedTab == 0) {
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { engine.stop() } }
+                isRecording = false
+            }
+        }
+        if (selectedTab == 1) {
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { silencer.stopAll() } }
+            }
+        }
+        selectedTab = index
+    }
 
     AudioSuitZuluTheme {
         Surface(
@@ -63,12 +83,17 @@ private fun App() {
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(
                         selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
+                        onClick = { selectTab(0) },
                         text = { Text("扩音器") }
                     )
                     Tab(
                         selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        onClick = { selectTab(1) },
+                        text = { Text("消音器") }
+                    )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectTab(2) },
                         text = { Text("关于") }
                     )
                 }
@@ -113,7 +138,8 @@ private fun App() {
                             }
                         }
                     )
-                    1 -> AboutPage(versionName = appVersion())
+                    1 -> SilencerPage(engine = silencer)
+                    2 -> AboutPage(versionName = appVersion())
                 }
             }
         }
