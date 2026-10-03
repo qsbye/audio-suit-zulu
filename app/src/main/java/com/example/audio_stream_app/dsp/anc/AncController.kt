@@ -163,6 +163,9 @@ class AncController(
         ampSmooth = 0f
         gate = 0f
         plant = plantCalibrated
+        baselineChunks = 0
+        baselineAccum = 0.0
+        beforeEnergy = 0.0
         nowEnergy = 0.0
         bandDbNow = 0f
         playRing.fill(0f)
@@ -199,6 +202,9 @@ class AncController(
         // 3) 门控（每块更新一次）：置信度跌破下阈值时无论是否仍在"正式锁定"
         //    （失锁有最长 0.5s 确认期）都立即淡出；锁定后约 1s 缓升
         when {
+            // 基线采集窗（约 0.3s）内禁止门控开启：反波虽经 390ms 回路才到麦，
+            // 仍要保证 beforeEnergy 完全取自无反波信号
+            baselineChunks < BASELINE_CHUNKS -> gate = 0f
             confidence < LOCK_OFF_CORR -> gate -= gate * GATE_DOWN_ALPHA
             locked -> gate += (1f - gate) * GATE_UP_ALPHA
         }
@@ -245,9 +251,13 @@ class AncController(
             if (phase < 0.0) phase += 0.0
         }
         if (baselineChunks < BASELINE_CHUNKS) {
-            baselineAccum += periodicPower
-            baselineChunks++
-            if (baselineChunks == BASELINE_CHUNKS) beforeEnergy = baselineAccum / BASELINE_CHUNKS
+            // 未捕获相位的块不计入，避免零值稀释基线
+            if (periodicPower > 1e-10) {
+                baselineAccum += periodicPower
+                baselineChunks++
+                if (baselineChunks == BASELINE_CHUNKS)
+                    beforeEnergy = baselineAccum / BASELINE_CHUNKS
+            }
         } else {
             nowEnergy = if (nowEnergy <= 0.0) periodicPower
             else nowEnergy * 0.9 + periodicPower * 0.1

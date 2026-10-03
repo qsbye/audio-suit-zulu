@@ -163,6 +163,9 @@ class AncController(
         ampSmooth = 0f
         gate = 0f
         plant = plantCalibrated
+        baselineChunks = 0
+        baselineAccum = 0.0
+        beforeEnergy = 0.0
         nowEnergy = 0.0
         bandDbNow = 0f
         playRing.fill(0f)
@@ -199,6 +202,9 @@ class AncController(
         // 3) 门控（每块更新一次）：置信度跌破下阈值时无论是否仍在"正式锁定"
         //    （失锁有最长 0.5s 确认期）都立即淡出；锁定后约 1s 缓升
         when {
+            // 基线采集窗（约 0.3s）内禁止门控开启：反波虽经 390ms 回路才到麦，
+            // 仍要保证 beforeEnergy 完全取自无反波信号
+            baselineChunks < BASELINE_CHUNKS -> gate = 0f
             confidence < LOCK_OFF_CORR -> gate -= gate * GATE_DOWN_ALPHA
             locked -> gate += (1f - gate) * GATE_UP_ALPHA
         }
@@ -207,7 +213,6 @@ class AncController(
         //    播放量按 1/plant 补偿扬声器→麦衰减，使反噪在麦处与外部周期声等幅
         val playScale = (ampSmooth * templateRms * gate / plant.coerceAtLeast(0.02f))
         val step = period / instPeriod   // 每真实采样对应的模板步进（漂移补偿）
-        val periodicPower: Double
         for (i in 0 until count) {
             var played = 0f
             if (gate > 1e-4f) {
@@ -221,18 +226,38 @@ class AncController(
             pushPlayed(played)
         }
 
-        // 5) 帧相位统一推进到下一帧（全类中唯一的推进点）
+        // 5) 周期带能量指标：必须在「原始麦信号」上拟合周期分量功率。
+        //    ext 已被 AEC 减掉反波回声，用它度量会看不到真实抵消量。
+        //    用本块已修正的块首相位把原始麦折叠到模板求最小二乘幅度。
+        var periodicPower = 0.0
         if (everAcquired) {
-            phase = (phase + count * step) % pInt
-            if (phase < 0.0) phase += pInt
+            var rawNum = 0.0
+            var rawTplSq = 0.0
+            for (i in 0 until count) {
+                val idx = (((phase + i * step).roundToInt()) % pInt + pInt) % pInt
+                val t = template[idx].toDouble()
+                rawNum += (mic[i].toDouble() / 32768.0) * t
+                rawTplSq += t * t
+            }
+            if (rawTplSq > 1e-12) {
+                val rawAmp = rawNum / rawTplSq
+                periodicPower = rawAmp * rawAmp * templatePower
+            }
         }
 
-        // 6) 周期带能量指标（外部噪声周期分量功率）
-        periodicPower = (ampSmooth.toDouble() * ampSmooth) * templatePower
+        // 6) 帧相位统一推进到下一帧（全类中唯一的推进点）
+        if (everAcquired) {
+            phase = (phase + count * step) % pInt
+            if (phase < 0.0) phase += 0.0
+        }
         if (baselineChunks < BASELINE_CHUNKS) {
-            baselineAccum += periodicPower
-            baselineChunks++
-            if (baselineChunks == BASELINE_CHUNKS) beforeEnergy = baselineAccum / BASELINE_CHUNKS
+            // 未捕获相位的块不计入，避免零值稀释基线
+            if (periodicPower > 1e-10) {
+                baselineAccum += periodicPower
+                baselineChunks++
+                if (baselineChunks == BASELINE_CHUNKS)
+                    beforeEnergy = baselineAccum / BASELINE_CHUNKS
+            }
         } else {
             nowEnergy = if (nowEnergy <= 0.0) periodicPower
             else nowEnergy * 0.9 + periodicPower * 0.1
