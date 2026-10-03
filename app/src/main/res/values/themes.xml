@@ -1,8 +1,12 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.AudioStreamApp" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+    <!-- 固定大地色主題：不使用 DayNight，不跟隨系統明暗模式 -->
+    <style name="Base.Theme.AudioStreamApp" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#836539</item>
+        <item name="android:windowBackground">#F5EEE2</item>
+        <item name="android:statusBarColor">#836539</item>
+        <item name="android:navigationBarColor">#F5EEE2</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 
     <style name="Theme.AudioStreamApp" parent="Base.Theme.AudioStreamApp" />
