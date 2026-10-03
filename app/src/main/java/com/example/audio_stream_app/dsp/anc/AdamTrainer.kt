@@ -31,19 +31,35 @@ class AdamTrainer(
     @Volatile
     var cancelled = false
 
-    /** 按周期折叠平均得到去噪单周期模板，返回（模板, RMS）。 */
+    /**
+     * 按周期折叠平均得到去噪单周期模板，返回（模板, RMS）。
+     *
+     * 真实基频周期几乎从不是整数采样（如 44100Hz 下 120Hz = 367.5 采样），
+     * 若直接用 i % round(P) 折叠，每个周期残留的半采样误差会沿数百个周期
+     * 累积，把模板平均模糊掉。这里在长度 p 的均匀相位网格上按浮点周期步进，
+     * 每个采样按线性插值分摊到相邻两个网格点，消除亚采样折叠模糊。
+     */
     fun buildTemplate(x: FloatArray, periodSamples: Float): Pair<FloatArray, Float> {
         val p = periodSamples.roundToInt().coerceAtLeast(2)
         val sums = DoubleArray(p)
-        val counts = IntArray(p)
-        for (i in x.indices) {
-            val j = i % p
-            sums[j] += x[i].toDouble()
-            counts[j]++
+        val weights = DoubleArray(p)
+        val inc = p / periodSamples   // 每真实采样在 p 点相位网格上的步进
+        var pos = 0.0
+        for (v in x) {
+            val f = ((pos % p) + p) % p
+            val j0 = kotlin.math.floor(f).toInt()
+            val w1 = f - j0
+            val j1 = (j0 + 1) % p
+            val d = v.toDouble()
+            sums[j0] += d * (1.0 - w1)
+            weights[j0] += 1.0 - w1
+            sums[j1] += d * w1
+            weights[j1] += w1
+            pos += inc
         }
         var power = 0.0
         val tpl = FloatArray(p) { j ->
-            val v = (sums[j] / counts[j]).toFloat()
+            val v = (sums[j] / weights[j].coerceAtLeast(1e-9)).toFloat()
             power += v.toDouble() * v
             v
         }

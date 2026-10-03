@@ -80,13 +80,78 @@ object PeriodDetector {
         val frac = refinedPeriod - k0
         val v0 = (corr[k0].toDouble() / norm0).toFloat()
         val v1 = (corr[k0 + 1].toDouble() / norm0).toFloat()
-        val confidence = (v0 * (1f - frac) + v1 * frac).coerceIn(-1f, 1f)
+        val confidence0 = (v0 * (1f - frac) + v1 * frac).coerceIn(-1f, 1f)
 
-        val f0 = sampleRate / refinedPeriod
+        // 长滞后精修：短窗抛物线在有噪时仍有 ~0.1 采样级误差，按数百个
+        // 周期折叠模板时会累积成不可忽视的相位漂移（高次谐波被平均模糊）。
+        // 在整段录音的 k·P 附近（k 个周期）再做一次归一化互相关峰定位，
+        // 亚采样误差随 k 缩小一个多数量级。
+        val (finePeriod, fineConf) = refineLongLag(x, refinedPeriod)
+
         return Result(
-            periodSamples = refinedPeriod,
-            f0Hz = f0,
-            confidence = confidence
+            periodSamples = finePeriod,
+            f0Hz = sampleRate / finePeriod,
+            confidence = if (fineConf > 0f) fineConf else confidence0
         )
+    }
+
+    /**
+     * 在整段 [x] 上、约 k 个周期滞后处精修周期估计。
+     * 返回（精修周期，长滞后置信度）；信号不足以跨 ≥2 个周期时原样返回。
+     */
+    private fun refineLongLag(x: FloatArray, coarsePeriod: Float): Pair<Float, Float> {
+        val n = x.size
+        val k = kotlin.math.floor((n / 2.0) / coarsePeriod).toInt()
+        if (k < 2) return coarsePeriod to -1f
+
+        val mean = x.average()
+        val w = DoubleArray(n) { x[it] - mean }
+
+        // 平方和前缀，便于 O(1) 求任意重叠段能量
+        val sqPref = DoubleArray(n + 1)
+        for (i in 0 until n) sqPref[i + 1] = sqPref[i] + w[i] * w[i]
+
+        fun normCorr(lag: Int): Double {
+            if (lag < 1 || lag >= n) return -1.0
+            val len = n - lag
+            var sum = 0.0
+            var i = 0
+            // 每 4 个一组展开，降低热循环开销
+            val limit = len - 3
+            while (i < limit) {
+                sum += w[i] * w[i + lag] + w[i + 1] * w[i + 1 + lag] +
+                    w[i + 2] * w[i + 2 + lag] + w[i + 3] * w[i + 3 + lag]
+                i += 4
+            }
+            while (i < len) { sum += w[i] * w[i + lag]; i++ }
+            val e0 = sqPref[len]
+            val e1 = sqPref[n] - sqPref[lag]
+            return sum / sqrt(e0 * e1.coerceAtLeast(1e-12))
+        }
+
+        // k·P 粗位置 ±0.5 个周期（再多 2 采样余量）
+        val center = kotlin.math.round(k * coarsePeriod).toInt()
+        val radius = kotlin.math.ceil(k * 0.5).toInt() + 2
+        val lo = max(1, center - radius)
+        val hi = minOf(center + radius, n - 2)
+        if (hi <= lo + 2) return coarsePeriod to -1f
+
+        var bestL = center
+        var bestV = -2.0
+        for (lag in lo..hi) {
+            val v = normCorr(lag)
+            if (v > bestV) { bestV = v; bestL = lag }
+        }
+        if (bestV < 0.1) return coarsePeriod to -1f
+
+        val vm = normCorr(bestL - 1)
+        val vp = normCorr(bestL + 1)
+        val denom = vm - 2.0 * bestV + vp
+        val delta = if (abs(denom) > 1e-12) 0.5 * (vm - vp) / denom else 0.0
+        val peakLag = bestL + delta.coerceIn(-1.0, 1.0)
+        val fine = (peakLag / k).toFloat()
+        // 只允许在粗估 ±0.6 采样内修正，异常峰不采信
+        if (abs(fine - coarsePeriod) > 0.6f) return coarsePeriod to -1f
+        return fine to bestV.toFloat()
     }
 }

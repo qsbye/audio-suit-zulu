@@ -150,5 +150,102 @@ private fun DrawScope.drawWave(samples: List<Short>, color: Color) {
     )
 }
 
+/**
+ * 双路波形缓冲（消音器页）：A=麦克风原始（灰），B=反相播放波（湖蓝）。
+ */
+class DualWaveformController {
+    private val bufferA = ArrayDeque<Short>(CAPACITY)
+    private val bufferB = ArrayDeque<Short>(CAPACITY)
+    private var lastInvalidateAt = 0L
+
+    var version by mutableIntStateOf(0)
+        private set
+
+    fun addSamples(a: ShortArray, b: ShortArray, count: Int) {
+        synchronized(bufferA) {
+            for (i in 0 until count) {
+                if (bufferA.size >= CAPACITY) bufferA.removeFirst()
+                bufferA.addLast(a[i])
+            }
+        }
+        synchronized(bufferB) {
+            for (i in 0 until count) {
+                if (bufferB.size >= CAPACITY) bufferB.removeFirst()
+                bufferB.addLast(b[i])
+            }
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastInvalidateAt >= REFRESH_INTERVAL_MS) {
+            lastInvalidateAt = now
+            version++
+        }
+    }
+
+    fun clear() {
+        synchronized(bufferA) { bufferA.clear() }
+        synchronized(bufferB) { bufferB.clear() }
+        version++
+    }
+
+    fun snapshot(): Pair<List<Short>, List<Short>> {
+        val a: List<Short>
+        val b: List<Short>
+        synchronized(bufferA) { a = bufferA.toList() }
+        synchronized(bufferB) { b = bufferB.toList() }
+        return a to b
+    }
+
+    private companion object {
+        const val CAPACITY = 8192
+        const val REFRESH_INTERVAL_MS = 33L
+    }
+}
+
+/**
+ * 双路波形绘制（消音器页）：颜色由调用方给出，默认灰=麦克风、湖蓝=反相波。
+ */
+@Composable
+fun DualWaveform(
+    controller: DualWaveformController,
+    modifier: Modifier = Modifier,
+    colorA: Color = RawWaveColor,
+    colorB: Color = CanadianLakeWave
+) {
+    Canvas(modifier) {
+        @Suppress("UNUSED_VARIABLE")
+        val version = controller.version
+
+        val midY = size.height / 2f
+        val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+        drawLine(
+            color = GridColor,
+            start = Offset(0f, midY),
+            end = Offset(size.width, midY),
+            strokeWidth = 2f,
+            pathEffect = dashEffect
+        )
+        drawLine(
+            color = GridColor,
+            start = Offset(0f, 0f),
+            end = Offset(size.width, 0f),
+            strokeWidth = 2f,
+            pathEffect = dashEffect
+        )
+        drawLine(
+            color = GridColor,
+            start = Offset(0f, size.height),
+            end = Offset(size.width, size.height),
+            strokeWidth = 2f,
+            pathEffect = dashEffect
+        )
+
+        val (a, b) = controller.snapshot()
+        drawWave(a, colorA)
+        drawWave(b, colorB)
+    }
+}
+
+private val CanadianLakeWave = Color(0xFF2D5975)
+
 private const val MAX_DRAW_POINTS = 360
 private const val MAX_SAMPLE = 32768f

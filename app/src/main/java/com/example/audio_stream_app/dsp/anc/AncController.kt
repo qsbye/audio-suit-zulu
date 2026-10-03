@@ -80,12 +80,6 @@ class AncController(
     /** 周期带能量相对开启前的差值 dB（负值=已下降）。 */
     val bandEnergyDeltaDb: Float get() = bandDbNow
 
-    // ---- 临时调试钩子（仿真排障后移除） ----
-    internal val dbgConfidence get() = confidence
-    internal val dbgGate get() = gate
-    internal val dbgAmp get() = ampSmooth
-    internal val dbgEchoWSum get() = echo?.dbgWSum() ?: 0f
-
     fun attach(
         mlp: WaveformMlp,
         rawTemplate: FloatArray,
@@ -106,6 +100,11 @@ class AncController(
         this.playRing = FloatArray(ringCap)
         this.echo = DelayAec(AEC_TAPS, leadSamples.coerceAtLeast(0))
         resetRuntime()
+    }
+
+    /** 设置反相波硬限幅上限（归一化，UI 反噪增益滑条调用，5%..100%）。 */
+    fun setMaxAntiLevel(v: Float) {
+        maxAntiLevel = v.coerceIn(0.05f, 1f)
     }
 
     fun updateLead(samples: Int) {
@@ -390,7 +389,6 @@ class AncController(
     private class DelayAec(private val taps: Int, private val delay: Int) {
         private val w = FloatArray(taps)
         fun reset() = w.fill(0f)
-        fun dbgWSum(): Float = w.sum()
 
         fun processSample(mic: Float, ring: FloatArray, pos: Int): Float {
             val half = taps / 2

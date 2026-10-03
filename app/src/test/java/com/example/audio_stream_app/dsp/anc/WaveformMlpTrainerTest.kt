@@ -81,6 +81,39 @@ class WaveformMlpTrainerTest {
         val corr = cov / kotlin.math.sqrt(vx * vy)
         println("lead=$lead 预测-真值 相关系数 = $corr")
         assertTrue("提前预测相关系数需 ≥0.99，实际 $corr", corr >= 0.99)
+
+        // 独立校验：直接用谐波解析式生成无噪真值（不经过折叠模板），
+        // 相位网格 j/p 对应的解析相位就是 2π·j/p，防止亚采样折叠模糊被
+        // 「网络拟合了被模糊的模板」所掩盖
+        val analytic = FloatArray(p) { j ->
+            val phi = j.toDouble() / p
+            var s = 0.0
+            for ((mult, amp) in listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.35, 4.0 to 0.2)) {
+                s += amp * sin(2.0 * PI * mult * phi)
+            }
+            (s / 2.2).toFloat()
+        }
+        var aPow = 0.0
+        for (v in analytic) aPow += v.toDouble() * v
+        val analyticRms = kotlin.math.sqrt(aPow / p)
+        var cx = 0.0
+        var cy = 0.0
+        for (j in 0 until p) {
+            cx += result.mlp.predict(j.toFloat() / p).toDouble()
+            cy += (analytic[j] / analyticRms).toDouble()
+        }
+        cx /= p; cy /= p
+        var cc = 0.0
+        var qx = 0.0
+        var qy = 0.0
+        for (j in 0 until p) {
+            val a = result.mlp.predict(j.toFloat() / p).toDouble() - cx
+            val b = analytic[j] / analyticRms - cy
+            cc += a * b; qx += a * a; qy += b * b
+        }
+        val truthCorr = cc / kotlin.math.sqrt(qx * qy)
+        println("网络输出-解析真值 相关系数 = $truthCorr")
+        assertTrue("网络输出需与解析真值相关 ≥0.99，实际 $truthCorr", truthCorr >= 0.99)
     }
 
     @Test

@@ -133,8 +133,10 @@ class WaveformMlp(
 
         var se = 0.0
         for (s in 0 until b) {
-            val x = phaseFeatures(phases[start + s])
-            xBuf[s] = x
+            // phaseFeatures 返回共享工作区，必须拷贝到批内独立数组，
+            // 否则所有样本的输入会别名到最后一个样本，反向梯度全部算错
+            phaseFeatures(phases[start + s]).copyInto(xBuf[s])
+            val x = xBuf[s]
             for (j in 0 until h) {
                 var z = b1[j]
                 val off = j * inputSize

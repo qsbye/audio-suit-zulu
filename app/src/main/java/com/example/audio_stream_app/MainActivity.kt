@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var audioTrack: AudioTrack
     private lateinit var executorService: ExecutorService
     private lateinit var audioManager: AudioManager
+    private lateinit var silencerEngine: SilencerEngine
     private val waveformController = WaveformController()
     private val aec = NlmsAec()
     private val howlingSuppressor = HowlingSuppressor(SAMPLE_RATE)
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
         audioManager = getSystemService(AudioManager::class.java)
         executorService = Executors.newSingleThreadExecutor()
+        silencerEngine = SilencerEngine(applicationContext)
 
         setContent {
             AudioSuitZuluTheme {
@@ -89,12 +91,17 @@ class MainActivity : ComponentActivity() {
                         TabRow(selectedTabIndex = selectedTab) {
                             Tab(
                                 selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
+                                onClick = { selectTab(0) },
                                 text = { Text("扩音器") }
                             )
                             Tab(
                                 selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
+                                onClick = { selectTab(1) },
+                                text = { Text("消音器") }
+                            )
+                            Tab(
+                                selected = selectedTab == 2,
+                                onClick = { selectTab(2) },
                                 text = { Text("关于") }
                             )
                         }
@@ -120,7 +127,8 @@ class MainActivity : ComponentActivity() {
                                 onRecordStart = { startStreaming() },
                                 onRecordStop = { stopStreaming() }
                             )
-                            1 -> AboutPage(versionName = BuildConfig.VERSION_NAME)
+                            1 -> SilencerPage(engine = silencerEngine)
+                            2 -> AboutPage(versionName = BuildConfig.VERSION_NAME)
                         }
                     }
                 }
@@ -129,6 +137,17 @@ class MainActivity : ComponentActivity() {
 
         updateVolumeDisplay()
         checkPermissions()
+    }
+
+    /**
+     * 切 Tab 时保证两页音频会话互斥（FR-1）：离开扩音器页按住会话立即停止，
+     * 离开消音器页停止其录制/标定/实时消音并释放音频设备。
+     */
+    private fun selectTab(index: Int) {
+        if (index == selectedTab) return
+        if (selectedTab == 0) stopStreaming()
+        if (selectedTab == 1) silencerEngine.stopAll()
+        selectedTab = index
     }
 
     private fun checkPermissions() {
@@ -272,11 +291,15 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(volumePoller)
+        // 退后台自动停止两页音频会话并释放设备（FR-7 / NFR-4）
+        stopStreaming()
+        if (::silencerEngine.isInitialized) silencerEngine.stopAll()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
+        if (::silencerEngine.isInitialized) silencerEngine.destroy()
         executorService.shutdownNow()
         if (::audioRecord.isInitialized) audioRecord.release()
         if (::audioTrack.isInitialized) audioTrack.release()

@@ -126,40 +126,6 @@ class AncControllerTest {
     }
 
     @Test
-    fun debugDumpState() {
-        val (mlp, tpl, rms, p) = trainedModel()
-        val ctrl = AncController(sr, chunk)
-        ctrl.attach(mlp, tpl, rms, p, lead)
-        ctrl.setEnabled(true)
-        val total = (3.6 * sr).toInt()
-        val rnd = Random(2026)
-        val played = FloatArray(total)
-        val mic = ShortArray(chunk)
-        val out = ShortArray(chunk)
-        var n = 0
-        var cIdx = 0
-        while (n + chunk <= total) {
-            for (i in 0 until chunk) {
-                val idx = n + i
-                val source = if (idx >= 3.0 * sr) (rnd.nextFloat() - 0.5f) * 2f * 0.45f * level
-                else periodicAt(120.0, idx) * level
-                var m = source
-                if (idx - lead >= 0) m += 0.7f * played[idx - lead]
-                mic[i] = (m * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-            }
-            ctrl.process(mic, out, chunk)
-            for (i in 0 until chunk) played[n + i] = out[i] / 32768f
-            val t = n.toDouble() / sr
-            if (cIdx % 10 == 0 || (t in 2.94..3.20)) {
-                println("t=%.2f lock=%s conf=%.3f gate=%.3f amp=%.4f wsum=%.3f"
-                    .format(t, ctrl.isLocked, ctrl.dbgConfidence, ctrl.dbgGate,
-                        ctrl.dbgAmp, ctrl.dbgEchoWSum))
-            }
-            n += chunk; cIdx++
-        }
-    }
-
-    @Test
     fun chunkProcessingIsFastEnough() {
         val (mlp, tpl, rms, p) = trainedModel()
         val ctrl = AncController(sr, chunk)
