@@ -30,6 +30,9 @@ tasks.withType<KotlinCompile>().configureEach {
 compose.desktop {
     application {
         mainClass = "com.example.audio_stream_app.desktop.MainKt"
+        nativeDistributions {
+            packageName = "AudioSuitZulu"
+        }
     }
 }
 

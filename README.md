@@ -10,7 +10,7 @@
 
 ## 中文
 
-AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音器**与**消音器(ANC)**两个模块,提供 Android 手机应用与 macOS 桌面应用两个构建目标,未来计划加入变声等更多音频工具。
+AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音器**与**消音器(ANC)**两个模块,提供 Android 手机应用与桌面应用(macOS / Windows)两个构建目标,未来计划加入变声等更多音频工具。
 
 界面全部使用 [Jetpack Compose](https://developer.android.com/jetpack/compose)(Android) / [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)(桌面)声明式构建,无任何 XML 布局;配色采用固定的**大地色系(Earth-Tone)**主题,不随系统明暗模式切换。
 
@@ -32,7 +32,7 @@ AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音�
 3. **标定** — 播放一段 chirp 扫频,互相关定位回路时延(实测约 380~390ms),同时在匹配峰处做最小二乘估计扬声器→麦植物增益;支持 ±50ms 手动微调
 4. **消音** — 打开开关后按预测相位提前生成反向波形播放;界面显示锁定徽章、实时双波形(大地灰=麦克风采音,湖水蓝=反相波)与周期带能量降幅(dB)
 
-技术要点:全部 DSP 为纯 Kotlin 实现(FFT 周期检测、PLL 相位跟踪、NLMS 回声剥离、门控缓升/淡出),代码位于 `app/.../dsp/anc/` 与 `desktop/.../dsp/anc/` 共 6 个文件(`Fft`、`PeriodDetector`、`LatencyCalibrator`、`WaveformMlp`、`AdamTrainer`、`AncController`),两端逐字节一致;Android 与桌面双端均可运行。
+技术要点:全部 DSP 为纯 Kotlin 实现(FFT 周期检测、PLL 相位跟踪、NLMS 回声剥离、门控缓升/淡出),代码位于 `app/.../dsp/anc/` 与 `desktop/.../dsp/anc/` 共 6 个文件(`Fft`、`PeriodDetector`、`LatencyCalibrator`、`WaveformMlp`、`AdamTrainer`、`AncController`),两端逐字节一致;Android 与桌面(macOS / Windows)均可运行。
 
 ### 功能
 
@@ -60,7 +60,7 @@ AudioSuitZulu(音函)是一个实时音频处理工具集,目前包含**扩音�
 ```
 .
 ├── app/       # Android 应用模块(:app,Jetpack Compose)
-└── desktop/   # macOS 桌面模块(:desktop,Compose Multiplatform + javax.sound)
+└── desktop/   # 桌面模块(:desktop,Compose Multiplatform + javax.sound,支持 macOS / Windows)
 ```
 
 两个目标共享同一套声明式 UI 设计与大地色主题,并各自带有一份相同实现的纯 Kotlin DSP(无第三方音频库);音频采集在 Android 上使用 `AudioRecord`/`AudioTrack`,在桌面上使用 JDK 自带的 `javax.sound.sampled`。信号处理管线为:
@@ -80,11 +80,27 @@ git clone https://github.com/qsbye/audio-suit-zulu.git
 cd audio-suit-zulu
 ```
 
-**Android APK:**
+**Android Debug APK:**
 
 ```bash
 ./gradlew :app:assembleDebug      # Debug APK: app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Android Release APK(debug 密钥后签,仅自测):**
+
+release 产物默认未签名,构建后用 build-tools 的 `zipalign` + `apksigner` 以 debug keystore 后签(不修改 Gradle 签名配置):
+
+```bash
+./gradlew :app:assembleRelease
+# 产物: app/build/outputs/apk/release/app-release-unsigned.apk
+$BT="$ANDROID_HOME/build-tools/<build-tools 版本>"
+"$BT/zipalign" -f -p 4 app-release-unsigned.apk aligned.apk
+"$BT/apksigner" sign --ks ~/.android/debug.keystore \
+  --ks-key-alias androiddebugkey --out AudioSuitZulu-release-signed.apk aligned.apk
+"$BT/apksigner" verify --verbose AudioSuitZulu-release-signed.apk   # 应显示 v2/v3 scheme 为 true
+```
+
+debug keystore 不存在时可用 keytool 按 AGP 默认参数生成(别名 `androiddebugkey`,口令为 AGP 公开默认值);debug 签名包不能上架。项目根目录下带时间戳的 `AudioSuitZulu-release-signed_YYYYMMDD_HHMMSS.apk` 即按此流程归档的历史构建。
 
 **macOS fat jar(同一 jar 同时支持 Apple Silicon 与 Intel):**
 
@@ -95,6 +111,30 @@ java -jar desktop/build/libs/AudioSuitZulu-desktop-1.0.0-all.jar
 ```
 
 fat jar 内已打包 macos-arm64 与 macos-x64 两套 Skiko 原生库,无需额外安装运行时(JDK 17+ 即可)。macOS 首次按下 Record 时需在系统弹窗中授予麦克风权限。
+
+**Windows 桌面 exe(自带 JRE 的便携 app-image):**
+
+需要 JDK 17(含 `jpackage`)与 [WiX Toolset 3.11](https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip)(解压即可,目录内需有 `candle.exe` / `light.exe`):
+
+```powershell
+$env:JAVA_HOME = "<JDK 17 安装目录>"
+$env:WIX_PATH  = "<wix311-binaries 解压目录>"
+.\gradlew.bat :desktop:createDistributable
+# 产物目录: desktop\build\compose\binaries\main\app\AudioSuitZulu\
+#   └─ AudioSuitZulu.exe(双击即可运行,无需安装 Java)
+```
+
+分发时把整个 `AudioSuitZulu` 目录(含 `runtime\` 自带 JRE 与 `app\`)打包为 zip;项目根目录下带时间戳的 `AudioSuitZulu-windows_YYYYMMDD_HHMMSS.zip` 即按此方式归档的历史构建。
+
+Windows 注意事项:
+
+* **非 ASCII 路径**:jpackage 对含中文等字符的项目路径处理有缺陷(生成不出 runtime image)。请在纯英文路径建一个目录联接(junction)后再构建,AGP 侧的路径检查已通过 `gradle.properties` 中的 `android.overridePathCheck=true` 放行:
+
+  ```powershell
+  New-Item -ItemType Junction -Path C:\asu_build -Target "<项目实际路径>"
+  cd C:\asu_build
+  ```
+* 首次构建 AGP 会自动下载缺失的 Android SDK Platform 34 / Build-Tools,需预先接受 SDK licenses。
 
 ### 使用
 
@@ -123,7 +163,8 @@ fat jar 内已打包 macos-arm64 与 macos-x64 两套 Skiko 原生库,无需额�
 
 * [x] 扩音器模块(Android)
 * [x] macOS 桌面 fat jar 构建目标
-* [x] 消音器模块(周期性环境噪音主动降噪,Android + macOS 双端)
+* [x] 消音器模块(周期性环境噪音主动降噪,Android + 桌面双端)
+* [x] Windows 桌面 exe 构建目标(jpackage 便携 app-image)
 * [ ] 更多音频工具(变声、均衡器等)
 
 ### 注意
@@ -138,7 +179,7 @@ MIT License,见 [LICENSE](LICENSE)。
 
 ## English
 
-AudioSuitZulu is a collection of real-time audio processing tools. It currently ships an **amplifier** module and a **noise suppressor (ANC)** module with two build targets — an Android phone app and a macOS desktop app — with a voice changer and more tools planned.
+AudioSuitZulu is a collection of real-time audio processing tools. It currently ships an **amplifier** module and a **noise suppressor (ANC)** module with two build targets — an Android phone app and a desktop app (macOS / Windows) — with a voice changer and more tools planned.
 
 The entire UI is built declaratively with [Jetpack Compose](https://developer.android.com/jetpack/compose) (Android) / [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/) (desktop), with no XML layouts at all. It uses a fixed **Earth-Tone** color theme that does not switch with the system light/dark mode.
 
@@ -188,7 +229,7 @@ Technical notes: all DSP is pure Kotlin (FFT-based period detection, PLL phase t
 ```
 .
 ├── app/       # Android app module (:app, Jetpack Compose)
-└── desktop/   # macOS desktop module (:desktop, Compose Multiplatform + javax.sound)
+└── desktop/   # Desktop module (:desktop, Compose Multiplatform + javax.sound, macOS / Windows)
 ```
 
 Both targets share the same declarative UI design and Earth-Tone theme, and each ships an identical implementation of pure-Kotlin DSP (no third-party audio libraries). Audio capture uses `AudioRecord`/`AudioTrack` on Android and the JDK-bundled `javax.sound.sampled` on desktop. The processing pipeline is:
@@ -208,11 +249,27 @@ git clone https://github.com/qsbye/audio-suit-zulu.git
 cd audio-suit-zulu
 ```
 
-**Android APK:**
+**Android Debug APK:**
 
 ```bash
 ./gradlew :app:assembleDebug      # Debug APK: app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Android Release APK (post-signed with the debug key, self-testing only):**
+
+The release artifact is unsigned by default. After building, use `zipalign` + `apksigner` from build-tools to post-sign it with the debug keystore (the Gradle signing config is left untouched):
+
+```bash
+./gradlew :app:assembleRelease
+# Output: app/build/outputs/apk/release/app-release-unsigned.apk
+$BT="$ANDROID_HOME/build-tools/<build-tools version>"
+"$BT/zipalign" -f -p 4 app-release-unsigned.apk aligned.apk
+"$BT/apksigner" sign --ks ~/.android/debug.keystore \
+  --ks-key-alias androiddebugkey --out AudioSuitZulu-release-signed.apk aligned.apk
+"$BT/apksigner" verify --verbose AudioSuitZulu-release-signed.apk   # expect v2/v3 schemes = true
+```
+
+If the debug keystore does not exist, generate it with keytool using the AGP defaults (alias `androiddebugkey`, AGP's well-known default passwords). A debug-signed APK cannot be published. Timestamped `AudioSuitZulu-release-signed_YYYYMMDD_HHMMSS.apk` files in the project root are archived builds produced by this flow.
 
 **macOS fat jar (a single jar supporting both Apple Silicon and Intel):**
 
@@ -223,6 +280,30 @@ java -jar desktop/build/libs/AudioSuitZulu-desktop-1.0.0-all.jar
 ```
 
 The fat jar bundles both macos-arm64 and macos-x64 Skiko native libraries and needs no extra runtime beyond JDK 17+. On macOS, grant microphone permission in the system prompt the first time you press Record.
+
+**Windows desktop exe (portable app-image with a bundled JRE):**
+
+Requires JDK 17 (with `jpackage`) and the [WiX Toolset 3.11](https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip) (just unzip it; the folder must contain `candle.exe` / `light.exe`):
+
+```powershell
+$env:JAVA_HOME = "<JDK 17 install dir>"
+$env:WIX_PATH  = "<unzipped wix311-binaries dir>"
+.\gradlew.bat :desktop:createDistributable
+# Output dir: desktop\build\compose\binaries\main\app\AudioSuitZulu\
+#   └─ AudioSuitZulu.exe (double-click to run, no Java installation needed)
+```
+
+For distribution, zip the whole `AudioSuitZulu` folder (including `runtime\` with the bundled JRE and `app\`). Timestamped `AudioSuitZulu-windows_YYYYMMDD_HHMMSS.zip` files in the project root are archived builds produced this way.
+
+Windows notes:
+
+* **Non-ASCII paths**: jpackage does not handle project paths containing characters such as Chinese (it fails to produce the runtime image). Build through an ASCII-path directory junction instead. The AGP-side path check is already suppressed via `android.overridePathCheck=true` in `gradle.properties`:
+
+  ```powershell
+  New-Item -ItemType Junction -Path C:\asu_build -Target "<actual project path>"
+  cd C:\asu_build
+  ```
+* On the first build AGP auto-downloads the missing Android SDK Platform 34 / Build-Tools; accept the SDK licenses beforehand.
 
 ### Usage
 
@@ -251,7 +332,8 @@ Limitations: software AEC mainly suppresses linear echo (direct sound and early 
 
 * [x] Amplifier module (Android)
 * [x] macOS desktop fat jar build target
-* [x] Noise suppressor module (active cancellation of periodic ambient noise, Android + macOS)
+* [x] Noise suppressor module (active cancellation of periodic ambient noise, Android + desktop)
+* [x] Windows desktop exe build target (jpackage portable app-image)
 * [ ] More audio tools (voice changer, equalizer, etc.)
 
 ### Disclaimer
